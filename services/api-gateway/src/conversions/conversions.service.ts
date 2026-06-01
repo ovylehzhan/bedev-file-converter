@@ -1,0 +1,139 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { v4 as uuidv4 } from 'uuid';
+import * as path from 'path';
+import { ConversionJob } from './conversion-job.entity';
+import { CreateConversionDto } from './dto/create-conversion.dto';
+
+@Injectable()
+export class ConversionsService {
+  constructor(
+    // TypeORM injects the repository for ConversionJob entity
+    @InjectRepository(ConversionJob)
+    private readonly jobRepo: Repository<ConversionJob>,
+
+    // BullMQ injects the "conversions" queue (shared with conversion-service)
+    @InjectQueue('conversions')
+    private readonly conversionQueue: Queue,
+  ) {}
+
+  /**
+   * Create a new conversion job:
+   * 1. Save job metadata to PostgreSQL (status: pending)
+   * 2. Add job to BullMQ queue (conversion-service will pick it up)
+   * 3. Return jobId to client immediately (async processing)
+   */
+  async create(
+    file: Express.Multer.File,
+    dto: CreateConversionDto,
+  ): Promise<ConversionJob> {
+    const jobId = `job_${uuidv4().slice(0, 8)}`;
+    const sourceFormat = path.extname(file.originalname).replace('.', '');
+
+    const job = this.jobRepo.create({
+      id: jobId,
+      originalFileName: file.originalname,
+      sourceFormat,
+      targetFormat: dto.targetFormat,
+      status: 'pending',
+      inputFilePath: file.path,
+    });
+
+    // Step 3 from diagram: Create job (status: pending) → Job Storage
+    await this.jobRepo.save(job);
+
+    // Step 4 from diagram: Add job to queue → Queue (Redis/BullMQ)
+    await this.conversionQueue.add('convert', {
+      jobId,
+      inputFilePath: file.path,
+      originalFileName: file.originalname,
+      sourceFormat,
+      targetFormat: dto.targetFormat,
+    });
+
+    return job;
+  }
+
+  /** GET /conversions — list all jobs (optional endpoint) */
+  async findAll(): Promise<ConversionJob[]> {
+    return this.jobRepo.find({ order: { createdAt: 'DESC' } });
+  }
+
+  /** GET /conversions/:jobId — full job details (optional endpoint) */
+  async findOne(jobId: string): Promise<ConversionJob> {
+    const job = await this.jobRepo.findOneBy({ id: jobId });
+    if (!job) throw new NotFoundException(`Job ${jobId} not found`);
+    return job;
+  }
+
+  /**
+   * GET /conversions/:jobId/status
+   * Returns different response shapes depending on status
+   * (exactly as specified in Notion assignment)
+   */
+  async getStatus(jobId: string) {
+    const job = await this.findOne(jobId);
+
+    const response: Record<string, any> = {
+      jobId: job.id,
+      status: job.status,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
+
+    if (job.status === 'done') {
+      response.downloadUrl = `http://localhost:3000/conversions/${job.id}/result`;
+    }
+
+    if (job.status === 'failed') {
+      response.error = job.error;
+    }
+
+    return response;
+  }
+
+  /**
+   * GET /conversions/:jobId/result
+   * Returns download URL if ready, or "not ready" message
+   */
+  async getResult(jobId: string) {
+    const job = await this.findOne(jobId);
+
+    if (job.status !== 'done') {
+      return {
+        jobId: job.id,
+        status: job.status,
+        message: 'File is not ready yet',
+      };
+    }
+
+    return {
+      jobId: job.id,
+      status: 'done',
+      downloadUrl: job.resultFileUrl,
+    };
+  }
+
+  /**
+   * POST /conversions/:jobId/cancel
+   * Limitation: if CloudConvert job is already running,
+   * we can only mark our local job as failed.
+   * This is documented in README.
+   */
+  async cancel(jobId: string) {
+    const job = await this.findOne(jobId);
+
+    if (job.status === 'done' || job.status === 'failed') {
+      return { jobId: job.id, message: `Job already ${job.status}` };
+    }
+
+    job.status = 'failed';
+    job.error = 'Cancelled by user';
+    await this.jobRepo.save(job);
+
+    return { jobId: job.id, status: 'failed', message: 'Job cancelled' };
+  }
+}
