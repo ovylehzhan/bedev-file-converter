@@ -19,9 +19,11 @@ export class CloudConvertService {
   private client: CloudConvert;
 
   constructor() {
-    this.client = new CloudConvert(process.env.CLOUDCONVERT_API_KEY || '', {
-      sandbox: process.env.CLOUDCONVERT_SANDBOX === 'true',
-    });
+    // Constructor signature: (apiKey, useSandbox?, region?)
+    this.client = new CloudConvert(
+      process.env.CLOUDCONVERT_API_KEY || '',
+      process.env.CLOUDCONVERT_SANDBOX === 'true',
+    );
   }
 
   async convert(
