@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment (contains API keys - NEVER commit)
+.env
+
+# Uploaded files (user data, can be large)
+uploads/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
