@@ -1,0 +1,200 @@
+# File Converter Microservices
+
+Microservice-based document conversion system using CloudConvert API. Built with NestJS, PostgreSQL, Redis, and Docker.
+
+## Architecture
+
+```
+                                    ┌─────────────────┐
+                              ┌────▶│  Job Storage     │◀────┐
+                              │     │  (PostgreSQL)    │     │
+                              │     └─────────────────┘     │
+                              │                              │
+┌──────────┐    POST /conv    │     ┌─────────────────┐     │     ┌───────────────┐
+│          │─────────────────▶│     │   Queue          │     │     │               │
+│  Client  │                  │────▶│  (Redis/BullMQ)  │────▶│     │  CloudConvert  │
+│          │◀─── SSE events   │     └─────────────────┘     │────▶│  API           │
+└──────────┘                  │                              │     └───────────────┘
+     │                   ┌────┴────┐                   ┌────┴─────────┐
+     │                   │   API    │                   │  Conversion   │
+     │                   │ Gateway  │                   │  Service      │
+     │                   │ :3000    │                   │  (BullMQ      │
+     │                   └─────────┘                   │   Worker)     │
+     │                        │                         └──────┬───────┘
+     │                        │   Redis PubSub                 │
+     │                        │◀───────────────────────────────┘
+     │                        │         ┌─────────────────────┐
+     │                        └────────▶│  Notification        │
+     │                                  │  Service :3002       │
+     └──────────────────────────────────│  (Event Routing)     │
+                                        └─────────────────────┘
+```
+
+### Services
+
+| Service | Port | Responsibility |
+|---------|------|----------------|
+| **API Gateway** | 3000 | HTTP API, file upload, SSE, job CRUD |
+| **Conversion Service** | 3001 | BullMQ worker, CloudConvert integration, rate limiting |
+| **Notification Service** | 3002 | Redis PubSub listener, event logging, extensible notifications |
+
+### Communication
+
+- **API Gateway → Conversion Service:** via BullMQ queue (Redis)
+- **Conversion Service → API Gateway:** via Redis PubSub → SSE to client
+- **Conversion Service → Notification Service:** via Redis PubSub
+- **Shared state:** PostgreSQL (conversion_jobs table)
+- **Shared storage:** Docker volume (uploaded files)
+
+### Rate Limiting
+
+BullMQ processor concurrency is set to `MAX_CONCURRENT_JOBS` (default: 30). When the limit is reached, new jobs wait in the queue. This ensures CloudConvert API limits are respected.
+
+## Quick Start
+
+### Prerequisites
+
+- Docker & Docker Compose
+- CloudConvert API key ([get free key](https://cloudconvert.com/dashboard/api/v2/keys) — 25 conversions/day)
+
+### Setup
+
+```bash
+# 1. Clone and configure
+git clone <repository-url>
+cd bedev-file-converter
+cp .env.example .env
+
+# 2. Add your CloudConvert API key to .env
+# CLOUDCONVERT_API_KEY=your_key_here
+
+# 3. Start everything
+docker compose up --build
+```
+
+All services will be available:
+- API Gateway: http://localhost:3000
+- Conversion Service health: http://localhost:3001/health
+- Notification Service health: http://localhost:3002/health
+
+## API Endpoints
+
+### Create Conversion Job
+
+```bash
+curl -X POST http://localhost:3000/conversions \
+  -F "file=@example.docx" \
+  -F "targetFormat=pdf"
+```
+
+Response:
+```json
+{"jobId": "job_a1b2c3d4", "status": "pending"}
+```
+
+### Check Job Status
+
+```bash
+curl http://localhost:3000/conversions/job_a1b2c3d4/status
+```
+
+Response (in progress):
+```json
+{"jobId": "job_a1b2c3d4", "status": "in_progress", "createdAt": "...", "updatedAt": "..."}
+```
+
+Response (done):
+```json
+{"jobId": "job_a1b2c3d4", "status": "done", "downloadUrl": "http://localhost:3000/conversions/job_a1b2c3d4/result"}
+```
+
+Response (failed):
+```json
+{"jobId": "job_a1b2c3d4", "status": "failed", "error": "CloudConvert conversion failed"}
+```
+
+### Subscribe to SSE Events
+
+```bash
+curl http://localhost:3000/conversions/job_a1b2c3d4/events
+```
+
+Or open in browser: `http://localhost:3000/conversions/job_a1b2c3d4/events`
+
+Events:
+```
+event: status
+data: {"jobId":"job_a1b2c3d4","status":"in_progress"}
+
+event: completed
+data: {"jobId":"job_a1b2c3d4","status":"done","downloadUrl":"http://localhost:3000/conversions/job_a1b2c3d4/result"}
+```
+
+### Get Conversion Result
+
+```bash
+curl http://localhost:3000/conversions/job_a1b2c3d4/result
+```
+
+### List All Jobs
+
+```bash
+curl http://localhost:3000/conversions
+```
+
+### Get Job Details
+
+```bash
+curl http://localhost:3000/conversions/job_a1b2c3d4
+```
+
+### Cancel Job
+
+```bash
+curl -X POST http://localhost:3000/conversions/job_a1b2c3d4/cancel
+```
+
+### Health Checks
+
+```bash
+curl http://localhost:3000/health   # API Gateway
+curl http://localhost:3001/health   # Conversion Service
+curl http://localhost:3002/health   # Notification Service
+```
+
+## User Flow
+
+```
+1.  Client sends file via POST /conversions
+2.  API Gateway saves file to shared storage
+3.  API Gateway creates job (status: pending) in PostgreSQL
+4.  API Gateway adds job to BullMQ queue
+5.  Conversion Service consumes job from queue
+6.  Conversion Service updates status → in_progress
+7.  Conversion Service calls CloudConvert API
+8.  CloudConvert performs the conversion
+9.  Conversion Service receives result
+10. Conversion Service updates status → done/failed
+11. Conversion Service publishes event to Redis PubSub
+12. API Gateway SSE endpoint receives event
+13. Client receives SSE notification
+14. Client downloads the converted file
+```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Language | TypeScript |
+| Framework | NestJS 10 |
+| Database | PostgreSQL 16 |
+| Queue / PubSub | Redis 7 + BullMQ |
+| File Conversion | CloudConvert API |
+| Containerization | Docker + Docker Compose |
+
+## Known Limitations
+
+- **Cancel job:** If CloudConvert job is already processing, we can only mark the local job as failed. CloudConvert may still complete the conversion.
+- **File storage:** Files are stored in a Docker volume. In production, use S3 or similar object storage.
+- **Authentication:** No auth implemented. In production, add JWT/session-based auth.
+- **synchronize: true:** TypeORM auto-creates tables. In production, use migrations.
