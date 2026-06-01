@@ -192,6 +192,46 @@ curl http://localhost:3002/health   # Notification Service
 | File Conversion | CloudConvert API |
 | Containerization | Docker + Docker Compose |
 
+## Testing
+
+### Unit tests
+
+Each service has unit tests (Jest + ts-jest, fully mocked — no DB/Redis needed):
+
+```bash
+cd services/api-gateway && npm test        # 16 tests
+cd services/conversion-service && npm test  # 4 tests
+cd services/notification-service && npm test # 3 tests
+```
+
+Coverage: job CRUD logic, status response shaping, cancel guards, SSE event
+type mapping + jobId filtering, conversion status transitions (success/error),
+event routing.
+
+### Manual end-to-end test
+
+With the stack running (`docker compose up --build`):
+
+```bash
+# Health checks
+curl http://localhost:3000/health
+curl http://localhost:3001/health
+curl http://localhost:3002/health
+
+# Create a job
+curl -X POST http://localhost:3000/conversions -F "file=@example.txt" -F "targetFormat=pdf"
+
+# Check status (use the returned jobId)
+curl http://localhost:3000/conversions/<jobId>/status
+
+# Watch live events in the browser
+open http://localhost:3000/conversions/<jobId>/events
+```
+
+> Without a valid `CLOUDCONVERT_API_KEY`, jobs reach CloudConvert and fail with
+> `Unauthorized` — this still exercises the full queue → worker → PubSub → SSE
+> pipeline. Add a real key to perform actual conversions.
+
 ## Known Limitations
 
 - **Cancel job:** If CloudConvert job is already processing, we can only mark the local job as failed. CloudConvert may still complete the conversion.
