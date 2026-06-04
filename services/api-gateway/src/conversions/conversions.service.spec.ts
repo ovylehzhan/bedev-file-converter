@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getQueueToken } from '@nestjs/bullmq';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Queue } from 'bullmq';
 import { ConversionsService } from './conversions.service';
@@ -74,6 +74,43 @@ describe('ConversionsService', () => {
           targetFormat: 'pdf',
         }),
       );
+    });
+
+    it('normalizes formats to lowercase', async () => {
+      const upper = {
+        originalname: 'REPORT.DOCX',
+        path: '/app/uploads/x',
+      } as Express.Multer.File;
+      const job = await service.create(upper, { targetFormat: 'PDF' });
+      expect(job.sourceFormat).toBe('docx');
+      expect(job.targetFormat).toBe('pdf');
+    });
+
+    it('rejects an unsupported source format', async () => {
+      const exe = {
+        originalname: 'virus.exe',
+        path: '/app/uploads/x',
+      } as Express.Multer.File;
+      await expect(
+        service.create(exe, { targetFormat: 'pdf' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unsupported target format', async () => {
+      await expect(
+        service.create(fakeFile, { targetFormat: 'mp3' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a file with no extension', async () => {
+      const noExt = {
+        originalname: 'noextension',
+        path: '/app/uploads/x',
+      } as Express.Multer.File;
+      await expect(
+        service.create(noExt, { targetFormat: 'pdf' }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

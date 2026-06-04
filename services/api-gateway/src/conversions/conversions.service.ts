@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -7,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import { ConversionJob } from './conversion-job.entity';
 import { CreateConversionDto } from './dto/create-conversion.dto';
+import { SUPPORTED_FORMATS, isSupportedFormat } from './formats.constants';
 
 @Injectable()
 export class ConversionsService {
@@ -31,13 +36,38 @@ export class ConversionsService {
     dto: CreateConversionDto,
   ): Promise<ConversionJob> {
     const jobId = `job_${uuidv4().slice(0, 8)}`;
-    const sourceFormat = path.extname(file.originalname).replace('.', '');
+    const sourceFormat = path
+      .extname(file.originalname)
+      .replace('.', '')
+      .toLowerCase();
+    const targetFormat = dto.targetFormat?.toLowerCase();
+
+    // Validate formats against the whitelist (fail fast with a clear 400
+    // instead of letting CloudConvert reject it later).
+    if (!sourceFormat) {
+      throw new BadRequestException(
+        'Uploaded file has no extension — cannot detect source format.',
+      );
+    }
+    if (!isSupportedFormat(sourceFormat)) {
+      throw new BadRequestException(
+        `Unsupported source format ".${sourceFormat}". Supported: ${SUPPORTED_FORMATS.join(', ')}`,
+      );
+    }
+    if (!targetFormat) {
+      throw new BadRequestException('targetFormat is required.');
+    }
+    if (!isSupportedFormat(targetFormat)) {
+      throw new BadRequestException(
+        `Unsupported target format ".${targetFormat}". Supported: ${SUPPORTED_FORMATS.join(', ')}`,
+      );
+    }
 
     const job = this.jobRepo.create({
       id: jobId,
       originalFileName: file.originalname,
       sourceFormat,
-      targetFormat: dto.targetFormat,
+      targetFormat,
       status: 'pending',
       inputFilePath: file.path,
     });
@@ -51,7 +81,7 @@ export class ConversionsService {
       inputFilePath: file.path,
       originalFileName: file.originalname,
       sourceFormat,
-      targetFormat: dto.targetFormat,
+      targetFormat,
     });
 
     return job;

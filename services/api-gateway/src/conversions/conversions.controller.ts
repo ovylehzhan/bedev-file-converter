@@ -8,12 +8,15 @@ import {
   UseInterceptors,
   UploadedFile,
   HttpCode,
+  UseFilters,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Observable } from 'rxjs';
 import { ConversionsService } from './conversions.service';
 import { SseService } from './sse.service';
 import { CreateConversionDto } from './dto/create-conversion.dto';
+import { MulterExceptionFilter } from './multer-exception.filter';
 
 /**
  * All endpoints from the Notion spec:
@@ -42,11 +45,15 @@ export class ConversionsController {
    * File comes as multipart/form-data field "file".
    */
   @Post()
+  @UseFilters(MulterExceptionFilter)
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateConversionDto,
   ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded (field "file").');
+    }
     const job = await this.conversionsService.create(file, dto);
     return { jobId: job.id, status: job.status };
   }

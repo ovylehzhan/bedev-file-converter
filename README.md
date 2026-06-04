@@ -77,6 +77,21 @@ All services will be available:
 - Conversion Service health: http://localhost:3001/health
 - Notification Service health: http://localhost:3002/health
 
+## Supported Formats
+
+Input and output formats are validated against a whitelist (case-insensitive):
+
+| | Formats |
+|---|---|
+| **Supported** | `pdf`, `docx`, `xlsx`, `pptx`, `png`, `jpg` (`jpeg`) |
+| **Max file size** | 2 GB |
+
+- Unsupported source/target format → `400 Bad Request` with a clear message.
+- File larger than 2 GB → `413 Payload Too Large`.
+- The actual conversion is performed by CloudConvert; an unsupported *pair*
+  (e.g. `png → xlsx`) passes validation but may fail at CloudConvert and the
+  job becomes `failed` with the provider's error.
+
 ## API Endpoints
 
 ### Create Conversion Job
@@ -234,6 +249,7 @@ open http://localhost:3000/conversions/<jobId>/events
 
 ## Known Limitations
 
+- **Format pairs:** Source/target formats are whitelist-validated, but a valid *pair* is not guaranteed — an exotic combination may still fail at CloudConvert.
 - **Cancel job:** If CloudConvert job is already processing, we can only mark the local job as failed. CloudConvert may still complete the conversion.
 - **File storage:** Files are stored in a Docker volume. In production, use S3 or similar object storage.
 - **Authentication:** No auth implemented. In production, add JWT/session-based auth.

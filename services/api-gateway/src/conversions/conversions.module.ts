@@ -6,6 +6,7 @@ import { ConversionsController } from './conversions.controller';
 import { ConversionsService } from './conversions.service';
 import { SseService } from './sse.service';
 import { ConversionJob } from './conversion-job.entity';
+import { MAX_FILE_SIZE_BYTES } from './formats.constants';
 
 @Module({
   imports: [
@@ -18,8 +19,10 @@ import { ConversionJob } from './conversion-job.entity';
 
     // Configure Multer for file uploads
     // Files are saved to UPLOAD_DIR (shared Docker volume)
+    // fileSize limit stops oversized uploads mid-stream (see MulterExceptionFilter)
     MulterModule.register({
       dest: process.env.UPLOAD_DIR || './uploads',
+      limits: { fileSize: MAX_FILE_SIZE_BYTES },
     }),
   ],
   controllers: [ConversionsController],
