@@ -6,28 +6,43 @@
   <title>File Converter — BeDev</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --card: #1e293b;
-      --card-2: #273449;
-      --accent: #6366f1;
-      --accent-hover: #818cf8;
-      --text: #e2e8f0;
-      --muted: #94a3b8;
+      --bg: #0a0a0a;
+      --card: #161010;
+      --card-2: #211616;
+      --accent: #dc2626;
+      --accent-hover: #ef4444;
+      --text: #f1f1f1;
+      --muted: #a1a1aa;
       --ok: #22c55e;
-      --err: #f87171;
-      --err-bg: #2a1a1f;
-      --border: #334155;
+      --err: #fca5a5;
+      --err-bg: #2a1212;
+      --border: #3a2424;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: radial-gradient(1200px 600px at 50% -10%, #1e2a4a 0%, var(--bg) 60%);
+      background: radial-gradient(1200px 600px at 50% -10%, #3a0d0d 0%, var(--bg) 60%);
       color: var(--text);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 24px;
+    }
+    .tribute {
+      position: fixed;
+      top: 18px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: var(--accent-hover);
+      text-transform: uppercase;
+      text-shadow: 0 0 12px rgba(220, 38, 38, .6);
+      pointer-events: none;
+      user-select: none;
     }
     .card {
       background: var(--card);
@@ -111,6 +126,7 @@
   </style>
 </head>
 <body>
+  <div class="tribute">🔥 Ihor — THE BEST 🔥</div>
   <div class="card">
     <h1>File Converter</h1>
     <div class="sub">Завантаж документ або зображення — сконвертуємо за пару секунд.</div>
