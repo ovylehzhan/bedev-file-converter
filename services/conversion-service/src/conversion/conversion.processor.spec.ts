@@ -41,6 +41,7 @@ describe('ConversionProcessor', () => {
     inputFilePath: '/app/uploads/abc',
     sourceFormat: 'docx',
     targetFormat: 'pdf',
+    originalFileName: 'contract.docx',
   };
 
   it('does nothing if the job is not in the database', async () => {
@@ -72,6 +73,15 @@ describe('ConversionProcessor', () => {
     });
 
     await processor.process(makeJob(jobData));
+
+    // CloudConvert must receive the original filename (with extension)
+    // — regression guard for the INVALID_FILENAME bug
+    expect(cloudConvert.convert).toHaveBeenCalledWith(
+      '/app/uploads/abc',
+      'docx',
+      'pdf',
+      'contract.docx',
+    );
 
     // Final state persisted
     expect(job.status).toBe('done');

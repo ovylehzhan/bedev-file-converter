@@ -30,6 +30,7 @@ export class CloudConvertService {
     inputFilePath: string,
     sourceFormat: string,
     targetFormat: string,
+    originalFileName: string,
   ): Promise<{ resultUrl: string; cloudConvertJobId: string }> {
     this.logger.log(
       `Starting conversion: ${sourceFormat} → ${targetFormat}`,
@@ -62,8 +63,11 @@ export class CloudConvertService {
       throw new Error('Upload task not found in CloudConvert job');
     }
 
+    // CloudConvert needs a filename WITH extension to detect the input
+    // format. Multer stores the file under a random extensionless name,
+    // so we pass the original filename explicitly.
     const inputFile = fs.createReadStream(inputFilePath);
-    await this.client.tasks.upload(uploadTask, inputFile);
+    await this.client.tasks.upload(uploadTask, inputFile, originalFileName);
     this.logger.log('File uploaded to CloudConvert');
 
     // Step 3: Wait for job to complete (polling internally)

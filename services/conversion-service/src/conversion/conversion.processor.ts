@@ -35,7 +35,8 @@ export class ConversionProcessor extends WorkerHost {
    * Called automatically by BullMQ when a job is available in the queue.
    */
   async process(job: Job) {
-    const { jobId, inputFilePath, sourceFormat, targetFormat } = job.data;
+    const { jobId, inputFilePath, sourceFormat, targetFormat, originalFileName } =
+      job.data;
     this.logger.log(`Processing job ${jobId}: ${sourceFormat} → ${targetFormat}`);
 
     // Find the job record in PostgreSQL
@@ -65,6 +66,7 @@ export class ConversionProcessor extends WorkerHost {
         inputFilePath,
         sourceFormat,
         targetFormat,
+        originalFileName,
       );
 
       // Step 12: Update status → done
