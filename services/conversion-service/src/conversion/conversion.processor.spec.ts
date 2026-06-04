@@ -99,6 +99,25 @@ describe('ConversionProcessor', () => {
     );
   });
 
+  it('does NOT overwrite to done if the job was cancelled during processing', async () => {
+    const job = { id: 'job_123', status: 'pending' } as ConversionJob;
+    // First load → pending; re-fetch after convert → cancelled (failed)
+    repo.findOneBy
+      .mockResolvedValueOnce(job)
+      .mockResolvedValueOnce({ id: 'job_123', status: 'failed' } as ConversionJob);
+    cloudConvert.convert.mockResolvedValue({
+      resultUrl: 'https://cloudconvert.com/result.pdf',
+      cloudConvertJobId: 'cc_999',
+    });
+
+    await processor.process(makeJob(jobData));
+
+    // The "done" event must NOT be published — cancel wins
+    expect(eventPublisher.publishJobEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'done' }),
+    );
+  });
+
   it('on CloudConvert error: sets failed and publishes failed event with message', async () => {
     const job = { id: 'job_123', status: 'pending' } as ConversionJob;
     repo.findOneBy.mockResolvedValue(job);

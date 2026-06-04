@@ -69,6 +69,19 @@ export class ConversionProcessor extends WorkerHost {
         originalFileName,
       );
 
+      // Guard against a cancel that happened WHILE we were converting:
+      // re-read the job; if the user cancelled it (status → failed) we must
+      // not overwrite that with "done". (For full atomicity one would use a
+      // conditional UPDATE ... WHERE status = 'in_progress'; the re-fetch
+      // closes the practical race window for this scope.)
+      const current = await this.jobRepo.findOneBy({ id: jobId });
+      if (current?.status === 'failed') {
+        this.logger.log(
+          `Job ${jobId} was cancelled during processing — keeping cancelled state`,
+        );
+        return;
+      }
+
       // Step 12: Update status → done
       conversionJob.status = 'done';
       conversionJob.cloudConvertJobId = result.cloudConvertJobId;
