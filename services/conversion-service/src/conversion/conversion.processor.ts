@@ -20,6 +20,19 @@ import { EventPublisherService } from './event-publisher.service';
 })
 export class ConversionProcessor extends WorkerHost {
   private readonly logger = new Logger(ConversionProcessor.name);
+  private readonly publicUrl =
+    process.env.PUBLIC_URL || 'http://localhost:3000';
+
+  // Sentinel written by api-gateway's cancel() — lets us tell a user
+  // cancellation apart from a transient failure that should be retried.
+  private static readonly CANCELLED = 'Cancelled by user';
+
+  private isCancelled(job: ConversionJob): boolean {
+    return (
+      job.status === 'failed' &&
+      job.error === ConversionProcessor.CANCELLED
+    );
+  }
 
   constructor(
     @InjectRepository(ConversionJob)
@@ -46,11 +59,16 @@ export class ConversionProcessor extends WorkerHost {
       return;
     }
 
-    // Skip if already cancelled by user
-    if (conversionJob.status === 'failed') {
+    // Skip only if the user explicitly cancelled before we picked it up.
+    // (A plain "failed" may also be a previous retry attempt — don't skip those.)
+    if (this.isCancelled(conversionJob)) {
       this.logger.log(`Job ${jobId} was cancelled, skipping`);
       return;
     }
+
+    // attempts is configured on the queue (default 1). attemptsMade is 0-based.
+    const totalAttempts = job.opts?.attempts ?? 1;
+    const isLastAttempt = job.attemptsMade + 1 >= totalAttempts;
 
     try {
       // Step 7: Update status → in_progress
@@ -75,7 +93,7 @@ export class ConversionProcessor extends WorkerHost {
       // conditional UPDATE ... WHERE status = 'in_progress'; the re-fetch
       // closes the practical race window for this scope.)
       const current = await this.jobRepo.findOneBy({ id: jobId });
-      if (current?.status === 'failed') {
+      if (current && this.isCancelled(current)) {
         this.logger.log(
           `Job ${jobId} was cancelled during processing — keeping cancelled state`,
         );
@@ -92,25 +110,35 @@ export class ConversionProcessor extends WorkerHost {
       await this.eventPublisher.publishJobEvent({
         jobId,
         status: 'done',
-        downloadUrl: `http://localhost:3000/conversions/${jobId}/result`,
+        downloadUrl: `${this.publicUrl}/conversions/${jobId}/result`,
       });
 
       this.logger.log(`Job ${jobId} completed successfully`);
     } catch (error) {
-      // Step 12: Update status → failed
-      conversionJob.status = 'failed';
-      conversionJob.error =
+      const message =
         error instanceof Error ? error.message : 'Conversion failed';
-      await this.jobRepo.save(conversionJob);
 
-      // Step 13: Publish failure event
-      await this.eventPublisher.publishJobEvent({
-        jobId,
-        status: 'failed',
-        error: conversionJob.error,
-      });
+      if (isLastAttempt) {
+        // Final attempt — persist failure and notify the client.
+        conversionJob.status = 'failed';
+        conversionJob.error = message;
+        await this.jobRepo.save(conversionJob);
+        await this.eventPublisher.publishJobEvent({
+          jobId,
+          status: 'failed',
+          error: message,
+        });
+        this.logger.error(`Job ${jobId} failed (final attempt): ${message}`);
+      } else {
+        // Leave status as in_progress and let BullMQ retry. We don't mark
+        // "failed" yet so the retry isn't mistaken for a cancellation.
+        this.logger.warn(
+          `Job ${jobId} attempt ${job.attemptsMade + 1}/${totalAttempts} failed: ${message} — will retry`,
+        );
+      }
 
-      this.logger.error(`Job ${jobId} failed: ${conversionJob.error}`);
+      // Re-throw so BullMQ schedules the next attempt (or finalizes failure).
+      throw error;
     }
   }
 }

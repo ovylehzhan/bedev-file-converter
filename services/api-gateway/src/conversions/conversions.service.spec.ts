@@ -73,6 +73,7 @@ describe('ConversionsService', () => {
           sourceFormat: 'docx',
           targetFormat: 'pdf',
         }),
+        expect.objectContaining({ attempts: 3 }),
       );
     });
 

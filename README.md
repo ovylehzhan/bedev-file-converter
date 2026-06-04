@@ -260,5 +260,8 @@ open http://localhost:3000/conversions/<jobId>/events
 - **Format pairs:** Source/target formats are whitelist-validated, but a valid *pair* is not guaranteed — an exotic combination may still fail at CloudConvert.
 - **Cancel job:** If CloudConvert job is already processing, we can only mark the local job as failed. CloudConvert may still complete the conversion.
 - **File storage:** Files are stored in a Docker volume. In production, use S3 or similar object storage.
-- **Authentication:** No auth implemented. In production, add JWT/session-based auth.
+- **Result URL expiry:** We store the CloudConvert download URL, which is **pre-signed and expires (~24h, `X-Amz-Expires=86400`)**. After that `downloadUrl` is dead. In production, download the file into our own storage (S3) and serve a stable link instead of proxying CloudConvert's temporary URL.
+- **SSE missed events / late subscriber:** SSE is fire-and-forget (no replay). If the client reloads or connects **after** the job finished, it won't receive the past `completed`/`failed` event — the live stream has no history. Mitigation: the status lives in PostgreSQL, so `GET /conversions/:jobId/status` always returns the truth; treat SSE as a real-time *enhancement*, not the source of truth. A production version would honor `Last-Event-ID` and replay buffered events on reconnect.
+- **Authentication:** No auth implemented — **every job/file is visible to anyone** who can reach the API (`GET /conversions` lists all jobs; job IDs are short). In production, add JWT/session auth and scope every job to its owner.
 - **synchronize: true:** TypeORM auto-creates tables. In production, use migrations.
+- **Crash resilience:** Services run with `restart: unless-stopped` and have healthchecks; failed conversions are retried up to 3× with exponential backoff. A job that was mid-conversion when the worker died is retried (a new CloudConvert job is created — not idempotent yet).

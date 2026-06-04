@@ -76,13 +76,23 @@ export class ConversionsService {
     await this.jobRepo.save(job);
 
     // Step 4 from diagram: Add job to queue → Queue (Redis/BullMQ)
-    await this.conversionQueue.add('convert', {
-      jobId,
-      inputFilePath: file.path,
-      originalFileName: file.originalname,
-      sourceFormat,
-      targetFormat,
-    });
+    // attempts + exponential backoff: a transient CloudConvert/network
+    // failure is retried up to 3 times instead of failing the job outright.
+    await this.conversionQueue.add(
+      'convert',
+      {
+        jobId,
+        inputFilePath: file.path,
+        originalFileName: file.originalname,
+        sourceFormat,
+        targetFormat,
+      },
+      {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: true,
+      },
+    );
 
     return job;
   }
@@ -115,7 +125,8 @@ export class ConversionsService {
     };
 
     if (job.status === 'done') {
-      response.downloadUrl = `http://localhost:3000/conversions/${job.id}/result`;
+      const publicUrl = process.env.PUBLIC_URL || 'http://localhost:3000';
+      response.downloadUrl = `${publicUrl}/conversions/${job.id}/result`;
     }
 
     if (job.status === 'failed') {

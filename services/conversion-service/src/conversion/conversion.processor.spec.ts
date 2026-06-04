@@ -16,8 +16,9 @@ describe('ConversionProcessor', () => {
   let cloudConvert: jest.Mocked<CloudConvertService>;
   let eventPublisher: jest.Mocked<EventPublisherService>;
 
-  const makeJob = (data: object): Job =>
-    ({ data } as Job);
+  // attemptsMade is 0-based; attempts is the configured max (default 1).
+  const makeJob = (data: object, attemptsMade = 0, attempts = 1): Job =>
+    ({ data, attemptsMade, opts: { attempts } } as unknown as Job);
 
   beforeEach(() => {
     repo = {
@@ -53,10 +54,11 @@ describe('ConversionProcessor', () => {
     expect(repo.save).not.toHaveBeenCalled();
   });
 
-  it('skips a job that was already cancelled (status failed)', async () => {
+  it('skips a job that was cancelled before pickup (failed + cancel sentinel)', async () => {
     repo.findOneBy.mockResolvedValue({
       id: 'job_123',
       status: 'failed',
+      error: 'Cancelled by user',
     } as ConversionJob);
 
     await processor.process(makeJob(jobData));
@@ -104,7 +106,11 @@ describe('ConversionProcessor', () => {
     // First load → pending; re-fetch after convert → cancelled (failed)
     repo.findOneBy
       .mockResolvedValueOnce(job)
-      .mockResolvedValueOnce({ id: 'job_123', status: 'failed' } as ConversionJob);
+      .mockResolvedValueOnce({
+        id: 'job_123',
+        status: 'failed',
+        error: 'Cancelled by user',
+      } as ConversionJob);
     cloudConvert.convert.mockResolvedValue({
       resultUrl: 'https://cloudconvert.com/result.pdf',
       cloudConvertJobId: 'cc_999',
@@ -118,12 +124,15 @@ describe('ConversionProcessor', () => {
     );
   });
 
-  it('on CloudConvert error: sets failed and publishes failed event with message', async () => {
+  it('on last-attempt error: sets failed, publishes failed event, and re-throws', async () => {
     const job = { id: 'job_123', status: 'pending' } as ConversionJob;
     repo.findOneBy.mockResolvedValue(job);
     cloudConvert.convert.mockRejectedValue(new Error('Unauthorized'));
 
-    await processor.process(makeJob(jobData));
+    // attemptsMade=0, attempts=1 → this IS the last attempt
+    await expect(processor.process(makeJob(jobData, 0, 1))).rejects.toThrow(
+      'Unauthorized',
+    );
 
     expect(job.status).toBe('failed');
     expect(job.error).toBe('Unauthorized');
@@ -132,5 +141,22 @@ describe('ConversionProcessor', () => {
       status: 'failed',
       error: 'Unauthorized',
     });
+  });
+
+  it('on non-last-attempt error: does NOT mark failed, re-throws so BullMQ retries', async () => {
+    const job = { id: 'job_123', status: 'pending' } as ConversionJob;
+    repo.findOneBy.mockResolvedValue(job);
+    cloudConvert.convert.mockRejectedValue(new Error('network blip'));
+
+    // attemptsMade=0, attempts=3 → NOT the last attempt
+    await expect(processor.process(makeJob(jobData, 0, 3))).rejects.toThrow(
+      'network blip',
+    );
+
+    // No "failed" persisted or published yet — the retry will run
+    expect(job.status).not.toBe('failed');
+    expect(eventPublisher.publishJobEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+    );
   });
 });
