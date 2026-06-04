@@ -5,29 +5,41 @@ Microservice-based document conversion system using CloudConvert API. Built with
 ## Architecture
 
 ```
-                                    ┌─────────────────┐
-                              ┌────▶│  Job Storage     │◀────┐
-                              │     │  (PostgreSQL)    │     │
-                              │     └─────────────────┘     │
-                              │                              │
-┌──────────┐    POST /conv    │     ┌─────────────────┐     │     ┌───────────────┐
-│          │─────────────────▶│     │   Queue          │     │     │               │
-│  Client  │                  │────▶│  (Redis/BullMQ)  │────▶│     │  CloudConvert  │
-│          │◀─── SSE events   │     └─────────────────┘     │────▶│  API           │
-└──────────┘                  │                              │     └───────────────┘
-     │                   ┌────┴────┐                   ┌────┴─────────┐
-     │                   │   API    │                   │  Conversion   │
-     │                   │ Gateway  │                   │  Service      │
-     │                   │ :3000    │                   │  (BullMQ      │
-     │                   └─────────┘                   │   Worker)     │
-     │                        │                         └──────┬───────┘
-     │                        │   Redis PubSub                 │
-     │                        │◀───────────────────────────────┘
-     │                        │         ┌─────────────────────┐
-     │                        └────────▶│  Notification        │
-     │                                  │  Service :3002       │
-     └──────────────────────────────────│  (Event Routing)     │
-                                        └─────────────────────┘
+                    ┌──────────┐
+       (1) POST ───▶│  Client  │◀─── (8) SSE events
+                    └──────────┘
+                          │ ▲
+                          ▼ │
+                  ┌───────────────┐
+                  │  API Gateway  │  :3000  (HTTP · file upload · SSE · validation)
+                  └───┬───────┬───┘
+        (2) save job  │       │  (3) enqueue job
+           (pending)  ▼       ▼
+   ┌──────────────────┐   ┌──────────────────┐
+   │  Job Storage     │   │  Queue           │
+   │  (PostgreSQL)    │   │  (Redis/BullMQ)  │
+   └──────────────────┘   └────────┬─────────┘
+            ▲                       │ (4) consume job
+   (6) update│ status              ▼
+             │            ┌──────────────────┐  (5) convert   ┌──────────────────┐
+             └────────────│ Conversion Svc   │──────────────▶ │ CloudConvert API │
+                          │ :3001 (BullMQ)   │◀────────────── │                  │
+                          └────────┬─────────┘    result      └──────────────────┘
+                                   │ (7) publish event  →  Redis PubSub
+                                   ▼
+            subscribers:  • API Gateway  ──(8)──▶  SSE to Client
+                          • Notification Service :3002  (routing / logging)
+
+Flow:
+ 1. Client → POST /conversions (file + targetFormat)          → API Gateway
+ 2. API Gateway saves the job (status: pending)               → PostgreSQL
+ 3. API Gateway enqueues the job                              → Redis / BullMQ
+ 4. Conversion Service consumes the job from the queue        ← Queue
+ 5. Conversion Service calls CloudConvert, gets the result    ↔ CloudConvert
+ 6. Conversion Service updates the job status                 → PostgreSQL
+ 7. Conversion Service publishes status events                → Redis PubSub
+ 8. API Gateway (subscribed to PubSub) pushes events          → SSE → Client
+    (Notification Service is also subscribed for routing/logging)
 ```
 
 ### Services
