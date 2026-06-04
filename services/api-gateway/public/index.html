@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>File Converter — BeDev</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --card-2: #273449;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --err: #f87171;
+      --err-bg: #2a1a1f;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1e2a4a 0%, var(--bg) 60%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 30px 60px -20px rgba(0,0,0,.5);
+    }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .sub { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+
+    .drop {
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      padding: 28px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all .15s ease;
+      margin-bottom: 8px;
+    }
+    .drop:hover, .drop.drag { border-color: var(--accent); background: var(--card-2); }
+    .drop .icon { font-size: 32px; margin-bottom: 8px; }
+    .drop .hint { color: var(--muted); font-size: 13px; }
+    .drop .fname { color: var(--accent-hover); font-weight: 600; word-break: break-all; }
+    input[type=file] { display: none; }
+
+    .formats { color: var(--muted); font-size: 12px; margin-bottom: 22px; }
+
+    select {
+      width: 100%;
+      background: var(--card-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      margin-bottom: 22px;
+      cursor: pointer;
+    }
+    button {
+      width: 100%;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s ease;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .msg {
+      margin-top: 20px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      display: none;
+      line-height: 1.5;
+    }
+    .msg.show { display: block; }
+    .msg.error { background: var(--err-bg); color: var(--err); border: 1px solid #5b2630; }
+    .msg.info { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+    .msg.ok { background: #14271c; color: var(--ok); border: 1px solid #1f4d33; }
+
+    .bar { height: 6px; background: var(--card-2); border-radius: 99px; overflow: hidden; margin-top: 12px; display: none; }
+    .bar.show { display: block; }
+    .bar > i { display: block; height: 100%; width: 30%; background: var(--accent);
+      border-radius: 99px; animation: slide 1.2s ease-in-out infinite; }
+    @keyframes slide { 0%{margin-left:-30%} 100%{margin-left:100%} }
+
+    .dl {
+      display: inline-block; margin-top: 14px; background: var(--ok); color: #052e16;
+      padding: 11px 18px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>File Converter</h1>
+    <div class="sub">Завантаж документ або зображення — сконвертуємо за пару секунд.</div>
+
+    <label>Файл</label>
+    <div class="drop" id="drop">
+      <div class="icon">📄</div>
+      <div class="hint" id="dropHint">Перетягни файл сюди або <b>натисни щоб вибрати</b></div>
+      <input type="file" id="file" />
+    </div>
+    <div class="formats">Підтримувані формати: PDF, DOCX, XLSX, PPTX, PNG, JPG · до 2 ГБ</div>
+
+    <label>Конвертувати у</label>
+    <select id="target">
+      <option value="pdf">PDF</option>
+      <option value="docx">DOCX</option>
+      <option value="xlsx">XLSX</option>
+      <option value="pptx">PPTX</option>
+      <option value="png">PNG</option>
+      <option value="jpg">JPG</option>
+    </select>
+
+    <button id="go" disabled>Конвертувати</button>
+
+    <div class="bar" id="bar"><i></i></div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <script>
+    const SUPPORTED = ['pdf', 'docx', 'xlsx', 'pptx', 'png', 'jpg', 'jpeg'];
+    const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('file');
+    const dropHint = document.getElementById('dropHint');
+    const target = document.getElementById('target');
+    const go = document.getElementById('go');
+    const msg = document.getElementById('msg');
+    const bar = document.getElementById('bar');
+    let selectedFile = null;
+
+    function showMsg(text, type) {
+      msg.className = 'msg show ' + type;
+      msg.innerHTML = text;
+    }
+    function hideMsg() { msg.className = 'msg'; }
+    function ext(name) {
+      const i = name.lastIndexOf('.');
+      return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+    }
+    function humanSize(b) {
+      if (b > 1e9) return (b / 1e9).toFixed(1) + ' ГБ';
+      if (b > 1e6) return (b / 1e6).toFixed(1) + ' МБ';
+      return (b / 1e3).toFixed(0) + ' КБ';
+    }
+
+    // --- Client-side validation (instant, before upload) ---
+    function pickFile(f) {
+      hideMsg();
+      const e = ext(f.name);
+      if (!SUPPORTED.includes(e)) {
+        selectedFile = null;
+        go.disabled = true;
+        dropHint.innerHTML = 'Перетягни файл сюди або <b>натисни щоб вибрати</b>';
+        showMsg(`😕 Формат <b>.${e || '?'}</b> не підтримується.<br>Спробуй: PDF, DOCX, XLSX, PPTX, PNG, JPG.`, 'error');
+        return;
+      }
+      if (f.size > MAX_BYTES) {
+        selectedFile = null;
+        go.disabled = true;
+        showMsg(`📦 Файл завеликий — <b>${humanSize(f.size)}</b>.<br>Максимум 2 ГБ.`, 'error');
+        return;
+      }
+      selectedFile = f;
+      go.disabled = false;
+      dropHint.innerHTML = `<span class="fname">${f.name}</span><br><span class="hint">${humanSize(f.size)}</span>`;
+    }
+
+    drop.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', e => { if (e.target.files[0]) pickFile(e.target.files[0]); });
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); drop.classList.remove('drag');
+      if (e.dataTransfer.files[0]) pickFile(e.dataTransfer.files[0]);
+    });
+
+    // --- Submit + live SSE progress ---
+    go.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      go.disabled = true;
+      bar.className = 'bar show';
+      showMsg('⏳ Завантаження файлу…', 'info');
+
+      const form = new FormData();
+      form.append('file', selectedFile);
+      form.append('targetFormat', target.value);
+
+      try {
+        const res = await fetch('/conversions', { method: 'POST', body: form });
+        const data = await res.json();
+
+        // --- Server-side error (friendly) ---
+        if (!res.ok) {
+          bar.className = 'bar';
+          go.disabled = false;
+          showMsg('⚠️ ' + (data.message || 'Не вдалося створити конверсію.'), 'error');
+          return;
+        }
+
+        showMsg('🔄 Конвертуємо… статус: <b>в обробці</b>', 'info');
+        listen(data.jobId);
+      } catch (err) {
+        bar.className = 'bar';
+        go.disabled = false;
+        showMsg('🔌 Сервер недоступний. Перевір, що бекенд запущено.', 'error');
+      }
+    });
+
+    function listen(jobId) {
+      const es = new EventSource(`/conversions/${jobId}/events`);
+
+      es.addEventListener('status', e => {
+        const d = JSON.parse(e.data);
+        if (d.status === 'in_progress') showMsg('🔄 Конвертуємо… статус: <b>в обробці</b>', 'info');
+      });
+      es.addEventListener('completed', async e => {
+        es.close();
+        bar.className = 'bar';
+        go.disabled = false;
+        // Fetch the real downloadable file URL (CloudConvert), not the JSON endpoint
+        let url = `/conversions/${jobId}/result`;
+        try {
+          const r = await fetch(`/conversions/${jobId}/result`);
+          const rd = await r.json();
+          if (rd.downloadUrl) url = rd.downloadUrl;
+        } catch (_) { /* fall back to API endpoint */ }
+        showMsg(`✅ Готово!<br><a class="dl" href="${url}" target="_blank">Завантажити результат</a>`, 'ok');
+      });
+      es.addEventListener('failed', e => {
+        const d = JSON.parse(e.data);
+        es.close();
+        bar.className = 'bar';
+        go.disabled = false;
+        showMsg('❌ Конвертація не вдалася: ' + (d.error || 'невідома помилка') + '.<br>Спробуй інший формат або файл.', 'error');
+      });
+      es.onerror = () => { es.close(); };
+    }
+  </script>
+</body>
+</html>

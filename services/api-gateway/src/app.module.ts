@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 import { ConversionsModule } from './conversions/conversions.module';
 import { HealthController } from './health/health.controller';
+import { UiController } from './ui/ui.controller';
 
 @Module({
   imports: [
@@ -26,6 +27,6 @@ import { HealthController } from './health/health.controller';
     // Our business logic module
     ConversionsModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, UiController],
 })
 export class AppModule {}

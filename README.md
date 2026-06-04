@@ -77,6 +77,14 @@ All services will be available:
 - Conversion Service health: http://localhost:3001/health
 - Notification Service health: http://localhost:3002/health
 
+## Web UI
+
+A minimal single-page UI is served at **http://localhost:3000/** — pick a file,
+choose a target format, and watch live progress (via SSE) until the download
+link appears. Format and size are validated client-side (instant feedback) and
+server-side. No build step — it's a self-contained HTML page served by the API
+Gateway.
+
 ## Supported Formats
 
 Input and output formats are validated against a whitelist (case-insensitive):
