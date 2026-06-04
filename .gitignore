@@ -20,3 +20,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Personal / local-only docs — NOT for reviewers
+docs/SUBMISSION.md
+docs/aws-cheatsheet.md
+docs/superpowers/
