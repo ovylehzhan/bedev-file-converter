@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { firstValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 import { SseService } from './sse.service';
+import { ConversionJob } from './conversion-job.entity';
 
 /**
  * Mock ioredis so the SseService constructor doesn't open a real connection.
@@ -21,10 +23,18 @@ jest.mock('ioredis', () => {
 
 describe('SseService', () => {
   let service: SseService;
+  let repo: { findOneBy: jest.Mock };
 
   beforeEach(async () => {
+    // Default: no snapshot (findOneBy → null) so existing tests see only
+    // the live stream. Individual tests override findOneBy as needed.
+    repo = { findOneBy: jest.fn().mockResolvedValue(null) };
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [SseService],
+      providers: [
+        SseService,
+        { provide: getRepositoryToken(ConversionJob), useValue: repo },
+      ],
     }).compile();
 
     service = module.get(SseService);
@@ -82,5 +92,23 @@ describe('SseService', () => {
     const events = await promise;
     expect(events).toHaveLength(1);
     expect(JSON.parse(events[0].data as string).jobId).toBe('job_1');
+  });
+
+  it('emits a DB snapshot first, so a late subscriber gets the terminal state', async () => {
+    // Job already finished in the DB before the client connected.
+    repo.findOneBy.mockResolvedValue({
+      id: 'job_done',
+      status: 'done',
+    });
+
+    // No live event is emitted — the client must still learn it's done.
+    const msg = await firstValueFrom(
+      service.getJobEvents('job_done').pipe(take(1)),
+    );
+
+    expect(msg.type).toBe('completed');
+    const data = JSON.parse(msg.data as string);
+    expect(data.jobId).toBe('job_done');
+    expect(data.downloadUrl).toContain('/conversions/job_done/result');
   });
 });

@@ -237,6 +237,8 @@
           return;
         }
 
+        // Remember the in-flight job so a page reload can resume tracking
+        localStorage.setItem('activeJobId', data.jobId);
         showMsg('🔄 Конвертуємо… статус: <b>в обробці</b>', 'info');
         listen(data.jobId);
       } catch (err) {
@@ -255,6 +257,7 @@
       });
       es.addEventListener('completed', async e => {
         es.close();
+        localStorage.removeItem('activeJobId');
         bar.className = 'bar';
         go.disabled = false;
         // Fetch the real downloadable file URL (CloudConvert), not the JSON endpoint
@@ -269,12 +272,24 @@
       es.addEventListener('failed', e => {
         const d = JSON.parse(e.data);
         es.close();
+        localStorage.removeItem('activeJobId');
         bar.className = 'bar';
         go.disabled = false;
         showMsg('❌ Конвертація не вдалася: ' + (d.error || 'невідома помилка') + '.<br>Спробуй інший формат або файл.', 'error');
       });
       es.onerror = () => { es.close(); };
     }
+
+    // --- Resume tracking after a page reload ---
+    // If a conversion was in flight, reconnect. The server sends a DB
+    // snapshot first, so we immediately learn the current (or terminal) state.
+    (function resumeIfAny() {
+      const jobId = localStorage.getItem('activeJobId');
+      if (!jobId) return;
+      bar.className = 'bar show';
+      showMsg('🔄 Відновлюємо стеження за конвертацією…', 'info');
+      listen(jobId);
+    })();
   </script>
 </body>
 </html>
