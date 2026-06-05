@@ -6,7 +6,11 @@ import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
-    // Same PostgreSQL database as api-gateway (shared state)
+    // Same PostgreSQL database as api-gateway (shared state).
+    // This service is the single SCHEMA OWNER: synchronize runs here only,
+    // so the two services don't race to create the same tables. api-gateway
+    // runs with synchronize: false and waits for this service to be healthy.
+    // (Production: synchronize: false + explicit migration files instead.)
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,

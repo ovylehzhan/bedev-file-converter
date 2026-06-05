@@ -62,6 +62,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # api-gateway runs synchronize: false, so it must start only AFTER
+      # conversion-service (the schema owner) has created the tables.
+      conversion-service:
+        condition: service_healthy
 
   conversion-service:
     build:

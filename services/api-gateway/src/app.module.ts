@@ -7,13 +7,18 @@ import { UiController } from './ui/ui.controller';
 
 @Module({
   imports: [
-    // PostgreSQL connection — stores conversion jobs
-    // synchronize: true auto-creates tables from entities (dev only!)
+    // PostgreSQL connection — stores conversion jobs.
+    // synchronize is FALSE here: a single DB is shared with conversion-service,
+    // and only ONE service may own schema sync (otherwise both race to create
+    // the same tables on boot). conversion-service is the schema owner
+    // (synchronize: true there). docker-compose makes api-gateway wait until
+    // conversion-service is healthy, so the table already exists.
+    // (Production: synchronize: false everywhere + explicit migration files.)
     TypeOrmModule.forRoot({
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
-      synchronize: true,
+      synchronize: false,
     }),
 
     // Redis connection for BullMQ job queue

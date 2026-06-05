@@ -58,6 +58,26 @@ Flow:
 - **Shared state:** PostgreSQL (conversion_jobs table)
 - **Shared storage:** Docker volume (uploaded files)
 
+> **Honest note on Notification Service:** in this MVP it only **subscribes
+> to `job-events` and logs** them. SSE to the client is delivered by the
+> **API Gateway** (which subscribes to the same channel independently) — the
+> Notification Service is *not* on the SSE path. It exists to demonstrate
+> PubSub fan-out (multiple independent subscribers) and as the extension
+> point for real delivery (email / webhook / Slack — currently TODO stubs).
+> A leaner design would drop it, or route client SSE through it instead.
+
+> **Schema ownership:** a single PostgreSQL DB is shared, so only **one**
+> service owns schema sync — **Conversion Service** runs `synchronize: true`,
+> **API Gateway** runs `synchronize: false` and is ordered (via
+> `depends_on`) to start only after Conversion Service is healthy (table
+> created). Production-correct approach: `synchronize: false` everywhere +
+> explicit migration files.
+
+> **Health checks** verify real dependencies, not just "HTTP is up":
+> API Gateway → PostgreSQL + Redis; Conversion Service → Redis + PostgreSQL;
+> Notification Service → Redis. They return **503** if a dependency is down,
+> so Docker restarts the container.
+
 ### Rate Limiting
 
 BullMQ processor concurrency is set to `MAX_CONCURRENT_JOBS` (default: 30). When the limit is reached, new jobs wait in the queue. This ensures CloudConvert API limits are respected.
@@ -276,5 +296,5 @@ open http://localhost:3000/conversions/<jobId>/events
 - **Result URL expiry:** We store the CloudConvert download URL, which is **pre-signed and expires (~24h, `X-Amz-Expires=86400`)**. After that `downloadUrl` is dead. In production, download the file into our own storage (S3) and serve a stable link instead of proxying CloudConvert's temporary URL.
 - **SSE late subscriber — handled:** Redis PubSub itself has no replay, so to cover reloads / late connections the SSE endpoint emits a **DB snapshot** of the job's current state on connect (merged before the live stream). A client that connects after the job finished still immediately receives `completed`/`failed`. The UI also persists the in-flight `jobId` in `localStorage` and resumes tracking on reload. (Remaining gap: no mid-stream `Last-Event-ID` replay of *individual* events — the snapshot covers the practical case since the terminal state is what matters.)
 - **Authentication:** No auth implemented — **every job/file is visible to anyone** who can reach the API (`GET /conversions` lists all jobs; job IDs are short). In production, add JWT/session auth and scope every job to its owner.
-- **synchronize: true:** TypeORM auto-creates tables. In production, use migrations.
+- **No migrations (synchronize):** schema is auto-created by TypeORM `synchronize`. Because one DB is shared, only Conversion Service owns sync (`synchronize: true`); API Gateway runs `synchronize: false` and waits for it. The production-correct approach is `synchronize: false` everywhere + versioned migration files (not yet implemented).
 - **Crash resilience:** Services run with `restart: unless-stopped` and have healthchecks; failed conversions are retried up to 3× with exponential backoff. A job that was mid-conversion when the worker died is retried (a new CloudConvert job is created — not idempotent yet).
