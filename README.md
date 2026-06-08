@@ -254,8 +254,8 @@ curl http://localhost:3002/health   # Notification Service
 Each service has unit tests (Jest + ts-jest, fully mocked — no DB/Redis needed):
 
 ```bash
-cd services/api-gateway && npm test        # 16 tests
-cd services/conversion-service && npm test  # 4 tests
+cd services/api-gateway && npm test        # 23 tests
+cd services/conversion-service && npm test  # 6 tests
 cd services/notification-service && npm test # 3 tests
 ```
 
@@ -273,8 +273,8 @@ curl http://localhost:3000/health
 curl http://localhost:3001/health
 curl http://localhost:3002/health
 
-# Create a job
-curl -X POST http://localhost:3000/conversions -F "file=@example.txt" -F "targetFormat=pdf"
+# Create a job (use a supported format: pdf, docx, xlsx, pptx, png, jpg)
+curl -X POST http://localhost:3000/conversions -F "file=@example.jpg" -F "targetFormat=pdf"
 
 # Check status (use the returned jobId)
 curl http://localhost:3000/conversions/<jobId>/status
