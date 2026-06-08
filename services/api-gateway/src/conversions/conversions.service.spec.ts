@@ -6,15 +6,17 @@ import { Repository } from 'typeorm';
 import { Queue } from 'bullmq';
 import { ConversionsService } from './conversions.service';
 import { ConversionJob } from './conversion-job.entity';
+import { EventPublisherService } from './event-publisher.service';
 
 /**
  * Unit tests for ConversionsService.
- * Repository and Queue are mocked — no real DB or Redis needed.
+ * Repository, Queue and event publisher are mocked — no real DB/Redis needed.
  */
 describe('ConversionsService', () => {
   let service: ConversionsService;
   let repo: jest.Mocked<Repository<ConversionJob>>;
   let queue: jest.Mocked<Queue>;
+  let publisher: { publishJobEvent: jest.Mock };
 
   beforeEach(async () => {
     // Mock TypeORM repository
@@ -30,11 +32,15 @@ describe('ConversionsService', () => {
       add: jest.fn(() => Promise.resolve()),
     };
 
+    // Mock Redis event publisher
+    publisher = { publishJobEvent: jest.fn(() => Promise.resolve()) };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ConversionsService,
         { provide: getRepositoryToken(ConversionJob), useValue: repoMock },
         { provide: getQueueToken('conversions'), useValue: queueMock },
+        { provide: EventPublisherService, useValue: publisher },
       ],
     }).compile();
 
@@ -230,6 +236,32 @@ describe('ConversionsService', () => {
       expect(result.status).toBe('failed');
       expect(result.message).toBe('Job cancelled');
       expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('publishes a failed event so live SSE clients see the cancel', async () => {
+      repo.findOneBy.mockResolvedValue({
+        id: 'job_123',
+        status: 'in_progress',
+      } as ConversionJob);
+
+      await service.cancel('job_123');
+
+      expect(publisher.publishJobEvent).toHaveBeenCalledWith({
+        jobId: 'job_123',
+        status: 'failed',
+        error: 'Cancelled by user',
+      });
+    });
+
+    it('does NOT publish when the job is already finished', async () => {
+      repo.findOneBy.mockResolvedValue({
+        id: 'job_123',
+        status: 'done',
+      } as ConversionJob);
+
+      await service.cancel('job_123');
+
+      expect(publisher.publishJobEvent).not.toHaveBeenCalled();
     });
   });
 });

@@ -12,6 +12,7 @@ import * as path from 'path';
 import { ConversionJob } from './conversion-job.entity';
 import { CreateConversionDto } from './dto/create-conversion.dto';
 import { SUPPORTED_FORMATS, isSupportedFormat } from './formats.constants';
+import { EventPublisherService } from './event-publisher.service';
 
 @Injectable()
 export class ConversionsService {
@@ -23,6 +24,9 @@ export class ConversionsService {
     // BullMQ injects the "conversions" queue (shared with conversion-service)
     @InjectQueue('conversions')
     private readonly conversionQueue: Queue,
+
+    // Publishes events to Redis PubSub (used by cancel — see below)
+    private readonly eventPublisher: EventPublisherService,
   ) {}
 
   /**
@@ -174,6 +178,14 @@ export class ConversionsService {
     job.status = 'failed';
     job.error = 'Cancelled by user';
     await this.jobRepo.save(job);
+
+    // Publish so SSE clients connected right now get the cancel in real time
+    // (conversion-service won't publish it — the cancel happens here).
+    await this.eventPublisher.publishJobEvent({
+      jobId: job.id,
+      status: 'failed',
+      error: 'Cancelled by user',
+    });
 
     return { jobId: job.id, status: 'failed', message: 'Job cancelled' };
   }

@@ -5,6 +5,7 @@ import { MulterModule } from '@nestjs/platform-express';
 import { ConversionsController } from './conversions.controller';
 import { ConversionsService } from './conversions.service';
 import { SseService } from './sse.service';
+import { EventPublisherService } from './event-publisher.service';
 import { ConversionJob } from './conversion-job.entity';
 import { MAX_FILE_SIZE_BYTES } from './formats.constants';
 
@@ -26,6 +27,6 @@ import { MAX_FILE_SIZE_BYTES } from './formats.constants';
     }),
   ],
   controllers: [ConversionsController],
-  providers: [ConversionsService, SseService],
+  providers: [ConversionsService, SseService, EventPublisherService],
 })
 export class ConversionsModule {}
