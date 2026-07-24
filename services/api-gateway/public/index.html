@@ -233,7 +233,9 @@
         if (!res.ok) {
           bar.className = 'bar';
           go.disabled = false;
-          showMsg('⚠️ ' + (data.message || 'Не вдалося створити конверсію.'), 'error');
+          // API returns a single error envelope: { error: { code, message, requestId } }
+          const errMsg = (data.error && data.error.message) || data.message || 'Не вдалося створити конверсію.';
+          showMsg('⚠️ ' + errMsg, 'error');
           return;
         }
 

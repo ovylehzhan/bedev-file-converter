@@ -49,6 +49,7 @@ services:
       - REDIS_PORT=6379
       - UPLOAD_DIR=/app/uploads
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
     volumes:
       - uploads:/app/uploads
     healthcheck:

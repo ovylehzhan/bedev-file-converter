@@ -2,6 +2,7 @@ import {
   Entity,
   PrimaryColumn,
   Column,
+  Index,
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -41,6 +42,12 @@ export class ConversionJob {
 
   @Column({ nullable: true })
   error: string; // error message if status=failed
+
+  // Optional client-supplied key. A retry with the same key returns the
+  // existing job instead of creating a duplicate (no double CloudConvert spend).
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  idempotencyKey: string;
 
   @CreateDateColumn()
   createdAt: Date;

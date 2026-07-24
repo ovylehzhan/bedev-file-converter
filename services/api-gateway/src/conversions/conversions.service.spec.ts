@@ -119,6 +119,27 @@ describe('ConversionsService', () => {
         service.create(noExt, { targetFormat: 'pdf' }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('idempotency: returns the existing job and does NOT enqueue again', async () => {
+      const existing = { id: 'job_old', status: 'done' } as ConversionJob;
+      repo.findOneBy.mockResolvedValue(existing);
+
+      const result = await service.create(fakeFile, { targetFormat: 'pdf' }, 'key-123');
+
+      expect(repo.findOneBy).toHaveBeenCalledWith({ idempotencyKey: 'key-123' });
+      expect(result).toBe(existing);
+      expect(repo.save).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('idempotency: stores the key on a new job when none exists yet', async () => {
+      repo.findOneBy.mockResolvedValue(null); // no prior job for this key
+
+      const job = await service.create(fakeFile, { targetFormat: 'pdf' }, 'key-new');
+
+      expect(job.idempotencyKey).toBe('key-new');
+      expect(queue.add).toHaveBeenCalled();
+    });
   });
 
   describe('findOne', () => {

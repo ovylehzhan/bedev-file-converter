@@ -4,11 +4,11 @@ import {
   Post,
   Param,
   Body,
+  Headers,
   Sse,
   UseInterceptors,
   UploadedFile,
   HttpCode,
-  UseFilters,
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -16,7 +16,6 @@ import { Observable } from 'rxjs';
 import { ConversionsService } from './conversions.service';
 import { SseService } from './sse.service';
 import { CreateConversionDto } from './dto/create-conversion.dto';
-import { MulterExceptionFilter } from './multer-exception.filter';
 
 /**
  * All endpoints from the Notion spec:
@@ -45,16 +44,20 @@ export class ConversionsController {
    * File comes as multipart/form-data field "file".
    */
   @Post()
-  @UseFilters(MulterExceptionFilter)
+  @HttpCode(202) // Accepted: the job is queued for async processing, not done
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateConversionDto,
+    // Optional idempotency: a client retrying an upload can send the same
+    // key; we return the existing job instead of creating a duplicate
+    // (which would double-spend a paid CloudConvert credit).
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     if (!file) {
       throw new BadRequestException('No file uploaded (field "file").');
     }
-    const job = await this.conversionsService.create(file, dto);
+    const job = await this.conversionsService.create(file, dto, idempotencyKey);
     return { jobId: job.id, status: job.status };
   }
 

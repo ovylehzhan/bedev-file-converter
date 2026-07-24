@@ -38,7 +38,18 @@ export class ConversionsService {
   async create(
     file: Express.Multer.File,
     dto: CreateConversionDto,
+    idempotencyKey?: string,
   ): Promise<ConversionJob> {
+    // Idempotency: if the client retried with the same key, return the job
+    // we already created instead of making a new one (which would enqueue a
+    // second CloudConvert conversion and double-spend a paid credit).
+    if (idempotencyKey) {
+      const existing = await this.jobRepo.findOneBy({ idempotencyKey });
+      if (existing) {
+        return existing;
+      }
+    }
+
     const jobId = `job_${uuidv4().slice(0, 8)}`;
     const sourceFormat = path
       .extname(file.originalname)
@@ -74,6 +85,7 @@ export class ConversionsService {
       targetFormat,
       status: 'pending',
       inputFilePath: file.path,
+      idempotencyKey: idempotencyKey || undefined,
     });
 
     // Step 3 from diagram: Create job (status: pending) → Job Storage
