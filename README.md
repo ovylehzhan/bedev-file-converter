@@ -142,10 +142,27 @@ curl -X POST http://localhost:3000/conversions \
   -F "targetFormat=pdf"
 ```
 
-Response:
+Response (`202 Accepted` — the job is queued for async processing, not done):
 ```json
 {"jobId": "job_a1b2c3d4", "status": "pending"}
 ```
+
+**Idempotency (optional):** send an `Idempotency-Key` header. A retry with the
+same key returns the existing job instead of creating a duplicate — so a retried
+upload can't double-spend a paid CloudConvert credit.
+```bash
+curl -X POST http://localhost:3000/conversions \
+  -H "Idempotency-Key: 7c9e-...-a1" \
+  -F "file=@example.docx" -F "targetFormat=pdf"
+```
+
+### Error format
+
+Every error uses one envelope (stable `code`, `requestId` for tracing):
+```json
+{ "error": { "code": "NOT_FOUND", "message": "Job job_x not found", "requestId": "req_..." } }
+```
+`code → HTTP`: `BAD_REQUEST` 400 · `NOT_FOUND` 404 · `PAYLOAD_TOO_LARGE` 413 · `INTERNAL` 500. Input is validated by a global `ValidationPipe`; validation errors return `code: BAD_REQUEST` with a `details` array.
 
 ### Check Job Status
 
